@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Harker School Transportation — Routes (2025–2026)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<style>
+  :root{
+    --brand:#0f766e; /* teal */
+    --brand2:#2563eb; /* blue */
+  }
+  html, body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+                 Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    background: #ffffff;
+  }
+  header {
+    text-align: center;
+    padding: 24px 16px;
+    background: radial-gradient(1200px 400px at 20% 20%, rgba(37,99,235,.10), transparent),
+                radial-gradient(1200px 400px at 80% 0%, rgba(15,118,110,.10), transparent),
+                linear-gradient(180deg, #ffffff 0%, #f6f8fb 100%);
+    color: #0f172a;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  header h1 { margin: 0; font-size: clamp(26px, 4vw, 36px); }
+  header p  { margin: 8px auto 0; max-width: 780px; color:#334155; font-size: clamp(14px, 2vw, 18px); }
+
+  #content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  #routes-info {
+    padding: 14px 16px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  #routes-info h2 { margin: 0 0 6px; font-size: 18px; }
+  #routes-info p  { margin: 0; color:#475569; }
+  #map-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 520px;
+  }
+  #map {
+    flex: 1;
+    height: 100%;
+    width: 100%;
+  }
+  footer{
+    padding: 14px;
+    color:#64748b;
+    text-align:center;
+    border-top:1px solid #e5e7eb;
+    background:#fafbff;
+    font-size: 13px;
+  }
+  /* Floating timings panel */
+  .timings {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    z-index: 9999;
+    width: 360px;
+    max-height: 52vh;
+    overflow: auto;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(2,6,23,.12);
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  .timings .title { font-weight: 700; margin-bottom: 6px; }
+  .timings .hint  { color:#475569; margin-bottom: 8px; font-size: 12px; }
+  .timings details { margin-bottom: 6px; }
+  .timings summary { cursor: pointer; }
+  .color-dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Harker School Transportation</h1>
+  <p>Interactive map of all morning and afternoon routes with numbered stops and arrival/departure times. Use the toggle control (top-right) to show/hide routes.</p>
+</header>
+
+<div id="content">
+  <div id="routes-info">
+    <h2>Routes</h2>
+    <p>Numbers on the map indicate stop order. Click a marker for exact times. Tip: toggle one or two routes at a time to reduce overlap.</p>
+  </div>
+  <div id="map-wrap">
+    <div id="map"></div>
+  </div>
+</div>
+
+<div class="timings" id="timings"></div>
+
+<footer>
+  2025–2026 schedule; subject to change. Built for quick reference.
+</footer>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+// ----- Map init -----
+var map = L.map('map').setView([37.31, -121.98], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+
+// ----- Helpers -----
+function numberIcon(number, color) {
+  var html = '<div style="background:'+color+';color:#fff;border-radius:50%;width:26px;height:26px;line-height:26px;text-align:center;font-weight:700;font-size:13px;box-shadow:0 0 4px rgba(0,0,0,.35);">'+number+'</div>';
+  return L.divIcon({ html: html, className: '', iconSize: [26,26], iconAnchor: [13,13] });
+}
+function popupHtml(title, arr, dep) {
+  var lines = '<b>'+title+'</b>';
+  if (arr) lines += '<br/>Arrival: ' + arr;
+  if (dep) lines += '<br/>Departure: ' + dep;
+  return lines;
+}
+// Slight offset (~16–20m) to separate overlapping same-location markers within a route
+function offsetCoord(lat, lon, factor) {
+  var d = 0.00015 * (factor || 0);
+  return [lat + d, lon + d];
+}
+
+// ----- Coordinates -----
+var LOC = {
+  Bucknall: [37.2746, -121.9823],
+  Union: [37.2577, -121.9358],
+  Nichols: [37.3192, -121.9529],
+  Shah: [37.3192, -121.9529],
+  RPAC: [37.3192, -121.9529],
+  AbundantLife: [37.3233, -122.0322],
+  LosAltosCC: [37.3790, -122.1156],
+  SharonPark: [37.4378, -122.1929],
+  Boynton: [37.3179, -121.9650],
+  MV_Walgreens: [37.3860, -122.0838],
+  MV_Target: [37.4001, -122.1069],
+  Sunnyvale_Astoria: [37.3514, -122.0366],
+  JohnDMorgan: [37.2870, -121.9504],
+  Saratoga_Westhope: [37.2880, -122.0330],
+  Foothill_College_Lot8: [37.3624, -122.1501],
+  Shir_Hadash: [37.2414, -121.9536],
+  Argonaut_Center: [37.2668, -122.0317],
+  Doerr_Park: [37.2704, -121.9129],
+  Milpitas_RedLobster: [37.4322, -121.8995],
+  SilverCreek_NewSeasons: [37.2847, -121.7920]
+};
+
+// ----- Route definitions (AM A–F, J–N; PM Green, Teal, Orange, Purple, Red) -----
+var ROUTES = [
+  // AM
+  { name: "A (AM)", color: "#1f77b4", stops: [
+      { n:"Cupertino: Abundant Life", c:"AbundantLife", arr:"7:16am", dep:"7:20am" },
+      { n:"Los Gatos: Shir Hadash", c:"Shir_Hadash", arr:"7:46am", dep:"7:50am" },
+      { n:"Union Campus", c:"Union", arr:"8:00am" }
+    ]},
+  { name: "B (AM)", color: "#17becf", stops: [
+      { n:"Mountain View Walgreens", c:"MV_Walgreens", arr:"7:08am", dep:"7:12am" },
+      { n:"Cupertino: Abundant Life", c:"AbundantLife", arr:"7:21am", dep:"7:25am" },
+      { n:"Saratoga: Westhope", c:"Saratoga_Westhope", arr:"7:36am", dep:"7:40am" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"7:46am", dep:"7:50am" },
+      { n:"Union Campus", c:"Union", arr:"8:02am" }
+    ]},
+  { name: "C (AM)", color: "#9467bd", stops: [
+      { n:"Mountain View: Target", c:"MV_Target", arr:"7:01am", dep:"7:05am" },
+      { n:"Sunnyvale: Astoria Drive", c:"Sunnyvale_Astoria", arr:"7:18am", dep:"7:22am" },
+      { n:"Saratoga Campus: Nichols", c:"Nichols", arr:"7:35am", dep:"7:37am" },
+      { n:"John D. Morgan Park", c:"JohnDMorgan", arr:"7:48am", dep:"7:53am" },
+      { n:"Union Campus", c:"Union", arr:"8:02am" }
+    ]},
+  { name: "D (AM)", color: "#8c564b", stops: [
+      { n:"Saratoga: Argonaut Center", c:"Argonaut_Center", arr:"7:11am", dep:"7:15am" },
+      { n:"Cupertino: Abundant Life", c:"AbundantLife", arr:"7:26am", dep:"7:30am" },
+      { n:"Saratoga Campus: Nichols", c:"Nichols", arr:"7:40am" }
+    ]},
+  { name: "E (AM)", color: "#2ca02c", stops: [
+      { n:"Los Altos: Foothill College (Lot 8 Transit Loop)", c:"Foothill_College_Lot8", arr:"7:01am", dep:"7:05am" },
+      { n:"Saratoga Campus: Nichols", c:"Nichols", arr:"7:21am", dep:"7:25am" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"7:41am", dep:"7:45am" },
+      { n:"Union Campus", c:"Union", arr:"7:59am" }
+    ]},
+  { name: "F (AM)", color: "#e377c2", stops: [
+      { n:"Union Campus", c:"Union", arr:"7:07am", dep:"7:12am" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"7:27am", dep:"7:28am" },
+      { n:"Boynton Campus", c:"Boynton", arr:"7:38am", dep:"7:40am" },
+      { n:"Saratoga Campus: Nichols", c:"Nichols", arr:"7:50am" }
+    ]},
+  { name: "J (AM • Van)", color: "#7f7f7f", stops: [
+      { n:"Silver Creek New Seasons Market", c:"SilverCreek_NewSeasons", arr:"6:58am", dep:"7:02am" },
+      { n:"Union Campus", c:"Union", arr:"7:34am" }
+    ]},
+  { name: "K (AM • Van)", color: "#bcbd22", stops: [
+      { n:"Doerr Park", c:"Doerr_Park", arr:"7:46am", dep:"7:50am" },
+      { n:"Union Campus", c:"Union", arr:"7:58am" }
+    ]},
+  { name: "L (AM • Van)", color: "#17becf", stops: [
+      { n:"Saratoga Campus - RPAC", c:"RPAC", arr:"7:11am", dep:"7:15am" },
+      { n:"Union Campus", c:"Union", arr:"7:30am" }
+    ]},
+  { name: "M (AM • Van)", color: "#d62728", stops: [
+      { n:"Milpitas: Red Lobster", c:"Milpitas_RedLobster", arr:"6:56am", dep:"7:00am" },
+      { n:"Union Campus - drop off only", c:"Union", arr:"7:33am", dep:"7:35am" },
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"8:00am" }
+    ]},
+  { name: "N (AM • Van)", color: "#1f77b4", stops: [
+      { n:"Silver Creek New Seasons Market", c:"SilverCreek_NewSeasons", arr:"7:08am", dep:"7:12am" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"8:00am" }
+    ]},
+  // PM
+  { name: "Green (PM)", color: "#2ca02c", stops: [
+      { n:"Union Campus + Sports", c:"Union", arr:"3:40pm" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"4:05pm", dep:"4:10pm" },
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"4:25pm", dep:"4:30pm" },
+      { n:"Cupertino: Abundant Life", c:"AbundantLife", arr:"4:45pm", dep:"4:50pm" },
+      { n:"Los Altos: Community Center", c:"LosAltosCC", arr:"5:05pm", dep:"5:10pm" },
+      { n:"Menlo Park: Sharon Park", c:"SharonPark", arr:"5:30pm", dep:"5:30pm" }
+    ]},
+  { name: "Teal (PM)", color: "#20c997", stops: [
+      { n:"Union Campus + Sports", c:"Union", arr:"3:40pm" },
+      { n:"Boynton Fields/Courts", c:"Boynton", arr:"4:00pm", dep:"4:05pm" },
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"4:10pm" }
+    ]},
+  { name: "Orange (PM)", color: "#ff7f0e", stops: [
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"4:30pm", offset:0 },
+      { n:"Union Campus", c:"Union", arr:"5:00pm", dep:"5:05pm", offset:0 },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"5:20pm", dep:"5:25pm", offset:0 },
+      // Same location as #1; offset the second Nichols instance so marker doesn't overlap
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"5:40pm", dep:"5:45pm", offset:1 },
+      { n:"Los Altos: Community Center", c:"LosAltosCC", arr:"6:00pm", offset:0 }
+    ]},
+  { name: "Purple (PM)", color: "#8000ff", stops: [
+      { n:"Saratoga Campus - Shah", c:"Shah", arr:"3:40pm" },
+      { n:"Boynton Campus", c:"Boynton", arr:"3:45pm", dep:"3:47pm" },
+      { n:"Bucknall Campus", c:"Bucknall", arr:"4:00pm", dep:"4:05pm" },
+      { n:"Union Campus", c:"Union", arr:"4:25pm" }
+    ]},
+  { name: "Red (PM)", color: "#dc3545", stops: [
+      { n:"Bucknall Campus", c:"Bucknall", arr:"5:00pm", dep:"5:05pm" },
+      { n:"Union Campus", c:"Union", arr:"5:20pm", dep:"5:25pm" },
+      { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"5:40pm", dep:"5:45pm" },
+      { n:"Cupertino: Abundant Life", c:"AbundantLife", arr:"6:05pm", dep:"6:05pm" }
+    ]}
+];
+
+// ----- Build layers and toggles -----
+var overlays = {};
+ROUTES.forEach(function(route){
+  var group = L.layerGroup();
+  var perCoordCount = {}; // track repeated same-location coords to offset duplicates
+  var path = [];
+  route.stops.forEach(function(stop, idx){
+    var base = LOC[stop.c];
+    var key = base[0].toFixed(5) + "," + base[1].toFixed(5);
+    perCoordCount[key] = (perCoordCount[key] || 0) + 1;
+    var offFactor = (typeof stop.offset !== 'undefined') ? stop.offset : (perCoordCount[key] - 1);
+    var coord = offFactor ? offsetCoord(base[0], base[1], offFactor) : base;
+    path.push(coord);
+
+    var marker = L.marker(coord, { icon: numberIcon(idx+1, route.color) })
+      .bindPopup(popupHtml(route.name + " • " + stop.n, stop.arr, stop.dep));
+    marker.addTo(group);
+  });
+  // Draw polyline through the (possibly offset) marker path to ensure segments connect visually
+  L.polyline(path, { color: route.color, weight: 6, opacity: 0.95 }).addTo(group);
+  overlays[route.name] = group;
+});
+
+// Add all routes enabled by default (you can change this to show none initially)
+Object.keys(overlays).forEach(function(k){ overlays[k].addTo(map); });
+
+// Single list of toggles
+L.control.layers(null, overlays, { collapsed: false }).addTo(map);
+
+// Campus pins for reference
+L.circleMarker(LOC.Union, { radius:7, color:"#000", fill:true, fillOpacity:1 }).addTo(map).bindTooltip("Union Campus");
+L.circleMarker(LOC.Bucknall, { radius:7, color:"#000", fill:true, fillOpacity:1 }).addTo(map).bindTooltip("Bucknall Campus");
+L.circleMarker(LOC.Nichols, { radius:7, color:"#000", fill:true, fillOpacity:1 }).addTo(map).bindTooltip("Saratoga Campus (Nichols)");
+
+// ----- Timings panel -----
+var timings = document.getElementById('timings');
+function routeBlock(route){
+  var items = route.stops.map(function(s, i){
+    var arr = s.arr ? "(Arr " + s.arr + ")" : "";
+    var dep = s.dep ? " (Dep " + s.dep + ")" : "";
+    return "<li><b>"+(i+1)+".</b> " + s.n + " <span style='opacity:.8'>" + arr + dep + "</span></li>";
+  }).join("");
+  return (
+    "<details>" +
+    "<summary><span class='color-dot' style='background:"+route.color+"'></span>"+route.name+"</summary>" +
+    "<ol style='margin:6px 0 0 18px; padding:0;'>" + items + "</ol>" +
+    "</details>"
+  );
+}
+timings.innerHTML = "<div class='title'>All Routes — Times</div><div class='hint'>Expand a route to view stop-by-stop times. Toggle routes via the map control.</div>" +
+  ROUTES.map(routeBlock).join("");
+</script>
+</body>
+</html>
