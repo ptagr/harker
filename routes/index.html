@@ -10,9 +10,7 @@
     --brand:#0f766e; /* teal */
     --brand2:#2563eb; /* blue */
   }
-  html, body {
-    height: 100%;
-  }
+  html, body { height: 100%; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
@@ -34,39 +32,16 @@
   header h1 { margin: 0; font-size: clamp(26px, 4vw, 36px); }
   header p  { margin: 8px auto 0; max-width: 780px; color:#334155; font-size: clamp(14px, 2vw, 18px); }
 
-  #content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  #routes-info {
-    padding: 14px 16px;
-    background: #f9fafb;
-    border-bottom: 1px solid #e5e7eb;
-  }
+  #content { flex: 1; display: flex; flex-direction: column; }
+  #routes-info { padding: 14px 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
   #routes-info h2 { margin: 0 0 6px; font-size: 18px; }
   #routes-info p  { margin: 0; color:#475569; }
-  #map-wrap {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 520px;
-  }
-  #map {
-    flex: 1;
-    height: 100%;
-    width: 100%;
-  }
-  footer{
-    padding: 14px;
-    color:#64748b;
-    text-align:center;
-    border-top:1px solid #e5e7eb;
-    background:#fafbff;
-    font-size: 13px;
-  }
-  /* Floating timings panel */
+  #map-wrap { flex: 1; display: flex; flex-direction: column; height: 100%; min-height: 520px; }
+  #map { flex: 1; height: 100%; width: 100%; }
+
+  footer{ padding: 14px; color:#64748b; text-align:center; border-top:1px solid #e5e7eb; background:#fafbff; font-size: 13px; }
+
+  /* Floating timings panel (collapsible) */
   .timings {
     position: fixed;
     left: 16px;
@@ -79,14 +54,34 @@
     border: 1px solid #e5e7eb;
     border-radius: 12px;
     box-shadow: 0 10px 30px rgba(2,6,23,.12);
-    padding: 12px 14px;
+    padding: 10px 12px 12px;
     font-size: 13px;
+    transition: all .25s ease;
   }
+  .timings.collapsed {
+    width: auto;
+    max-height: none;
+    padding: 6px 10px;
+  }
+  .timings .row { display:flex; align-items:center; justify-content:space-between; }
   .timings .title { font-weight: 700; margin-bottom: 6px; }
   .timings .hint  { color:#475569; margin-bottom: 8px; font-size: 12px; }
   .timings details { margin-bottom: 6px; }
   .timings summary { cursor: pointer; }
   .color-dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align: middle; }
+  .toggle-btn {
+    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+    color: #0f172a;
+    border-radius: 999px;
+    font-size: 12px;
+    padding: 4px 8px;
+    cursor: pointer;
+    margin-left: 10px;
+  }
+  .toggle-btn:hover { background:#f1f5f9; }
+  .panel-body { margin-top: 6px; }
+  .timings.collapsed .panel-body { display:none; }
 </style>
 </head>
 <body>
@@ -105,7 +100,14 @@
   </div>
 </div>
 
-<div class="timings" id="timings"></div>
+<div class="timings" id="timings">
+  <div class="row">
+    <div class="title">All Routes — Times</div>
+    <button class="toggle-btn" id="toggleTimes" aria-expanded="true">Hide</button>
+  </div>
+  <div class="hint">Expand a route to view stop-by-stop times. Toggle routes via the map control.</div>
+  <div class="panel-body" id="timingsBody"><!-- filled by JS --></div>
+</div>
 
 <footer>
   2025–2026 schedule; subject to change. Built for quick reference.
@@ -236,7 +238,6 @@ var ROUTES = [
       { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"4:30pm", offset:0 },
       { n:"Union Campus", c:"Union", arr:"5:00pm", dep:"5:05pm", offset:0 },
       { n:"Bucknall Campus", c:"Bucknall", arr:"5:20pm", dep:"5:25pm", offset:0 },
-      // Same location as #1; offset the second Nichols instance so marker doesn't overlap
       { n:"Saratoga Campus - Nichols", c:"Nichols", arr:"5:40pm", dep:"5:45pm", offset:1 },
       { n:"Los Altos: Community Center", c:"LosAltosCC", arr:"6:00pm", offset:0 }
     ]},
@@ -277,9 +278,8 @@ ROUTES.forEach(function(route){
   overlays[route.name] = group;
 });
 
-// Add all routes enabled by default (you can change this to show none initially)
+// Add all routes enabled by default
 Object.keys(overlays).forEach(function(k){ overlays[k].addTo(map); });
-
 // Single list of toggles
 L.control.layers(null, overlays, { collapsed: false }).addTo(map);
 
@@ -288,8 +288,7 @@ L.circleMarker(LOC.Union, { radius:7, color:"#000", fill:true, fillOpacity:1 }).
 L.circleMarker(LOC.Bucknall, { radius:7, color:"#000", fill:true, fillOpacity:1 }).addTo(map).bindTooltip("Bucknall Campus");
 L.circleMarker(LOC.Nichols, { radius:7, color:"#000", fill:true, fillOpacity:1 }).addTo(map).bindTooltip("Saratoga Campus (Nichols)");
 
-// ----- Timings panel -----
-var timings = document.getElementById('timings');
+// ----- Timings panel content -----
 function routeBlock(route){
   var items = route.stops.map(function(s, i){
     var arr = s.arr ? "(Arr " + s.arr + ")" : "";
@@ -303,8 +302,24 @@ function routeBlock(route){
     "</details>"
   );
 }
-timings.innerHTML = "<div class='title'>All Routes — Times</div><div class='hint'>Expand a route to view stop-by-stop times. Toggle routes via the map control.</div>" +
-  ROUTES.map(routeBlock).join("");
+document.getElementById('timingsBody').innerHTML = ROUTES.map(routeBlock).join("");
+
+// ----- Collapsible overlay logic (persist state) -----
+var toggleBtn = document.getElementById('toggleTimes');
+var timingsEl = document.getElementById('timings');
+// Restore state
+var saved = localStorage.getItem('timings_collapsed');
+if (saved === '1') {
+  timingsEl.classList.add('collapsed');
+  toggleBtn.textContent = 'Show';
+  toggleBtn.setAttribute('aria-expanded', 'false');
+}
+toggleBtn.addEventListener('click', function(){
+  var collapsed = timingsEl.classList.toggle('collapsed');
+  toggleBtn.textContent = collapsed ? 'Show' : 'Hide';
+  toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  localStorage.setItem('timings_collapsed', collapsed ? '1' : '0');
+});
 </script>
 </body>
 </html>
